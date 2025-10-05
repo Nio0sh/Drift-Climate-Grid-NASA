@@ -1,0 +1,697 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>VacuumDrift Weather Flow | Drift Climate Grid</title>
+
+    <link rel="stylesheet" href="https://unpkg.com/leaflet/dist/leaflet.css" />
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;800&display=swap" rel="stylesheet">
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+
+    <style>
+        /* 1. Global Theme Variables */
+        :root {
+            /* Dark Mode Defaults (Tailwind Gray 900) */
+            --bg-color: #111827;
+            --text-color: #e5e7eb;
+            --card-bg: rgba(31, 41, 55, 0.8);
+            --header-bg: #1f2937;
+            --input-bg: #374151;
+            --input-border: #4b5563;
+        }
+
+        /* Light Mode Overrides */
+        .light {
+            --bg-color: #f3f4f6; /* Gray 100 */
+            --text-color: #1f2937; /* Gray 800 */
+            --card-bg: rgba(255, 255, 255, 0.95); /* White / light blur */
+            --header-bg: #ffffff; /* White */
+            --input-bg: #ffffff;
+            --input-border: #d1d5db;
+        }
+
+        /* 2. Fixed Styles using variables */
+        body {
+            font-family: 'Inter', sans-serif;
+            background-color: var(--bg-color) !important; 
+            color: var(--text-color); 
+            transition: background-color 0.3s ease, color 0.3s ease;
+        }
+
+        /* 3. Card Style */
+        .card {
+            background: var(--card-bg); 
+            backdrop-filter: blur(12px);
+            border-radius: 1.5rem;
+            box-shadow: 0 10px 30px rgba(0,0,0,0.1);
+            transition: transform 0.3s, background 0.3s, box-shadow 0.3s;
+        }
+        .light .card {
+            box-shadow: 0 4px 20px rgba(0,0,0,0.05); /* Lighter shadow for light mode */
+        }
+        .card:hover {
+            transform: translateY(-3px);
+            box-shadow: 0 12px 35px rgba(0,0,0,0.3);
+        }
+        .light .card:hover {
+             box-shadow: 0 6px 25px rgba(0,0,0,0.1);
+        }
+
+        /* 4. Header and Input Styles */
+        header {
+            background-color: var(--header-bg);
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+        }
+        .light header {
+            box-shadow: 0 2px 10px rgba(0,0,0,0.05);
+        }
+        input {
+            background-color: var(--input-bg) !important;
+            border-color: var(--input-border) !important;
+            color: var(--text-color) !important;
+        }
+        /* Override specific Tailwind classes in Light Mode */
+        .light .text-gray-300 { color: #4b5563 !important; }
+        .light .text-gray-400 { color: #6b7280 !important; }
+        .light .text-gray-100 { color: #1f2937 !important; } 
+        .light .bg-gray-800 { background-color: #e5e7eb !important; } /* Lighter background for impact cards */
+
+        /* 5. Scrollbar for Dark/Light Mode */
+        .scrollbar-custom::-webkit-scrollbar { height: 8px; }
+        .scrollbar-custom::-webkit-scrollbar-thumb { background: #4f46e5; border-radius: 9999px; }
+        .scrollbar-custom::-webkit-scrollbar-track { background: var(--input-bg); border-radius: 9999px; }
+        
+        /* 6. Icon (Emoji) fix: Ensure visibility in both modes */
+        .icon-fix {
+            filter: grayscale(0%) brightness(1); 
+            text-shadow: 0 0 5px rgba(0,0,0,0.1);
+            transition: filter 0.3s;
+        }
+        .light .icon-fix {
+             filter: grayscale(0%) brightness(1); 
+             text-shadow: 0 0 5px rgba(0,0,0,0.1);
+        }
+        #mapa-interativo {
+            height: 350px; 
+            background-color: #374151; 
+        }
+
+    </style>
+</head>
+<body class="min-h-screen p-6"> 
+
+    <header class="p-4 rounded-xl shadow-md flex flex-wrap gap-4 justify-between items-center sticky top-0 z-50">
+        <div class="flex items-center gap-3 flex-grow">
+            <input id="cidade-input" type="text" placeholder="Search city..."
+                class="p-3 w-full md:w-96 rounded-lg border focus:ring-indigo-500 focus:border-indigo-500 transition"
+                aria-label="Search city">
+            <button id="pesquisar-btn"
+                class="px-5 py-3 rounded-lg bg-indigo-600 hover:bg-indigo-700 text-white font-bold shadow"
+                title="Search city">Search</button>
+        </div>
+        <div class="flex items-center gap-4">
+            <button id="tema-btn" class="p-3 rounded-lg bg-gray-700 text-white hover:bg-gray-600 transition" aria-label="Toggle Theme">
+                ☀️/🌙
+            </button>
+            <input type="date" id="data-input" 
+                class="p-3 rounded-lg border focus:ring-indigo-500 focus:border-indigo-500 transition"
+                aria-label="Select Date">
+        </div>
+    </header>
+
+    <h1 class="text-4xl font-extrabold text-center my-8 text-indigo-400">Drift Climate Grid</h1>
+
+    <main class="grid grid-cols-1 lg:grid-cols-4 gap-6 mb-10">
+        <div class="lg:col-span-2 card p-8 flex flex-col md:flex-row items-center justify-between border-l-8 border-indigo-500">
+            <div id="icone-tempo" class="mb-4 md:mb-0 text-7xl icon-fix"></div>
+            <div class="text-center md:text-left md:ml-6 flex-grow">
+                <p id="localizacao" class="text-xl font-medium text-gray-300">--</p>
+                <span id="temperatura" class="text-7xl font-extrabold">--°F</span>
+                <p id="condicao-descricao" class="text-2xl font-semibold text-indigo-400 mt-2">--</p>
+            </div>
+        </div>
+        <div class="lg:col-span-2 grid grid-cols-2 gap-4">
+            <div class="card p-4 border-b-4 border-orange-500"><p class="text-sm text-gray-400">Feels Like</p><p id="sensacao" class="text-2xl font-bold">--°F</p></div>
+            <div class="card p-4 border-b-4 border-blue-500"><p class="text-sm text-gray-400">Humidity</p><p id="umidade" class="text-2xl font-bold">--%</p></div>
+            <div class="card p-4 border-b-4 border-green-500"><p class="text-sm text-gray-400">Wind Speed</p><p id="vento" class="text-2xl font-bold">-- mph</p></div>
+            <div class="card p-4 border-b-4 border-red-500"><p class="text-sm text-gray-400">Rain Chance</p><p id="chuva" class="text-2xl font-bold">--%</p></div>
+        </div>
+    </main>
+    
+    <section class="grid grid-cols-1 md:grid-cols-2 gap-6 mb-10">
+        <div class="card p-6">
+            <h2 class="text-2xl font-bold mb-4 text-gray-100">🔥 Day Classification</h2>
+            <p id="classificacao-dia" class="text-xl font-extrabold text-indigo-400">--</p>
+            <p id="classificacao-justificativa" class="text-sm text-gray-400 mt-2">--</p>
+        </div>
+        <div class="card p-6 border-l-4 border-yellow-500">
+            <h2 class="text-2xl font-bold mb-4 text-yellow-400">🎯 Daily Challenge</h2>
+            <p id="desafio-titulo" class="text-xl font-extrabold text-gray-100">--</p>
+            <p id="desafio-descricao" class="text-sm text-gray-400 mt-2">--</p>
+        </div>
+    </section>
+
+    <section class="grid grid-cols-1 md:grid-cols-2 gap-6 mb-10">
+        <div class="card p-6 border-l-4 border-orange-500">
+            <h2 class="text-2xl font-bold mb-4 text-gray-100">☀️ Sun Cycle</h2>
+            <div class="grid grid-cols-3 gap-4 text-center">
+                <div><p class="text-sm text-gray-400">Sunrise 🌅</p><p id="nascer-sol" class="text-2xl font-bold">--</p></div>
+                <div><p class="text-sm text-gray-400">Sunset 🌇</p><p id="por-sol" class="text-2xl font-bold">--</p></div>
+                <div><p class="text-sm text-gray-400">Daylight Duration ⏳</p><p id="duracao-dia" class="text-2xl font-bold text-indigo-400">--</p></div>
+            </div>
+        </div>
+        <div class="card p-6 grid grid-cols-1 md:grid-cols-3 gap-6">
+            <h2 class="text-2xl font-bold mb-4 col-span-full text-gray-100">How Does the Weather Affect You Today? 🤔</h2>
+            <div id="impacto-vestuario" class="p-3 bg-gray-800 rounded-xl shadow-sm">
+                <p class="text-xs text-indigo-300 font-semibold">🧥 Attire Suggestion</p>
+                <p id="sugestao-vestuario" class="text-lg font-medium mt-1">--</p>
+            </div>
+            <div id="impacto-frizz" class="p-3 bg-gray-800 rounded-xl shadow-sm">
+                <p class="text-xs text-red-300 font-semibold">💧 Hair/Skin</p>
+                <p id="sugestao-frizz" class="text-lg font-medium mt-1">--</p>
+            </div>
+            <div id="impacto-secagem" class="p-3 bg-gray-800 rounded-xl shadow-sm">
+                <p class="text-xs text-green-300 font-semibold">🧺 Laundry Drying</p>
+                <p id="sugestao-secagem" class="text-lg font-medium mt-1">--</p>
+            </div>
+        </div>
+    </section>
+
+    <section class="mb-10">
+        <h2 class="text-2xl font-bold mb-4 text-gray-100">Hourly Forecast (Detail)</h2>
+        <div class="card p-4 overflow-x-auto scrollbar-custom">
+            <div id="hourly-cards-wrapper" class="flex gap-4">
+                </div>
+        </div>
+    </section>
+
+    <section class="grid grid-cols-1 lg:grid-cols-2 gap-6">
+        <div class="space-y-6">
+            <div class="card p-4">
+                <h2 class="text-2xl font-bold mb-4 text-gray-100">☀️ Daily Forecast (Full Range)</h2>
+                <div id="daily-cards-wrapper" class="flex gap-4 overflow-x-auto scrollbar-custom pb-2">
+                    </div>
+            </div>
+            <div class="card p-0">
+                <h2 class="text-xl font-bold p-4 text-gray-100">🗺️ Clique no Mapa para Mudar a Localização</h2>
+                <div id="mapa-interativo" class="w-full rounded-b-xl cursor-crosshair"></div>
+            </div>
+        </div>
+       
+        <div class="card p-6 h-96">
+            <h2 class="text-2xl font-bold mb-4 text-gray-100">Weekly Trend (°F)</h2>
+            <canvas id="graficoTemperatura"></canvas>
+        </div>
+    </section>
+
+    <script src="https://unpkg.com/leaflet/dist/leaflet.js"></script>
+
+    <script>
+        // 🔑 API Key and Base URL
+        const OPENWEATHER_API_KEY = "9b9b45c62e044cac93478250f98fd417"; 
+        const API_URL_BASE = "https://api.openweathermap.org/data/2.5/";
+        const REVERSE_GEOCODE_BASE = "https://api.openweathermap.org/geo/1.0/reverse";
+
+        // 🔄 Global State
+        let cidadeAtual = "São Paulo";
+        let latAtual = -23.5505; // São Paulo default
+        let lonAtual = -46.6333; // São Paulo default
+        let chartInstance;
+        let mapInstance = null; 
+        let currentMarker = null;
+        let isApiKeyInvalid = false;
+
+        // ⏩ Cached Elements
+        const el = {
+            localizacao: document.getElementById("localizacao"),
+            temperatura: document.getElementById("temperatura"),
+            condicao: document.getElementById("condicao-descricao"),
+            sensacao: document.getElementById("sensacao"),
+            umidade: document.getElementById("umidade"),
+            vento: document.getElementById("vento"),
+            chuva: document.getElementById("chuva"),
+            icone: document.getElementById("icone-tempo"),
+            hourly: document.getElementById("hourly-cards-wrapper"),
+            daily: document.getElementById("daily-cards-wrapper"),
+            cidadeInput: document.getElementById("cidade-input"),
+            dataInput: document.getElementById("data-input"), 
+            temaBtn: document.getElementById("tema-btn"),
+            
+            sugestaoVestuario: document.getElementById("sugestao-vestuario"),
+            sugestaoFrizz: document.getElementById("sugestao-frizz"),
+            sugestaoSecagem: document.getElementById("sugestao-secagem"),
+            classificacaoDia: document.getElementById("classificacao-dia"),
+            classificacaoJustificativa: document.getElementById("classificacao-justificativa"),
+            desafioTitulo: document.getElementById("desafio-titulo"),
+            desafioDescricao: document.getElementById("desafio-descricao"),
+            nascerSol: document.getElementById("nascer-sol"),
+            porSol: document.getElementById("por-sol"),
+            duracaoDia: document.getElementById("duracao-dia"),
+            mapaInterativo: document.getElementById("mapa-interativo")
+        };
+
+        // --- THEME LOGIC ---
+        function toggleTheme() {
+            const isLightMode = document.body.classList.contains('light');
+            const bodyClassList = document.body.classList;
+            const btnClassList = el.temaBtn.classList;
+            
+            if (isLightMode) {
+                bodyClassList.remove('light');
+                localStorage.setItem('theme', 'dark');
+                el.temaBtn.innerHTML = '☀️';
+                btnClassList.remove('bg-gray-200', 'text-gray-800');
+                btnClassList.add('bg-gray-700', 'text-white');
+            } else {
+                bodyClassList.add('light');
+                localStorage.setItem('theme', 'light');
+                el.temaBtn.innerHTML = '🌙';
+                btnClassList.remove('bg-gray-700', 'text-white');
+                btnClassList.add('bg-gray-200', 'text-gray-800');
+            }
+            if (chartInstance && window.dailyDataCache) {
+                atualizarGrafico(window.dailyDataCache); 
+            }
+        }
+
+        function initializeTheme() {
+            const savedTheme = localStorage.getItem('theme');
+            const prefersDark = window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches;
+
+            document.body.classList.remove('light');
+            
+            if (savedTheme === 'light') {
+                document.body.classList.add('light');
+            } else if (!savedTheme && !prefersDark) {
+                document.body.classList.add('light');
+            }
+            
+            if (document.body.classList.contains('light')) {
+                el.temaBtn.innerHTML = '🌙';
+                el.temaBtn.classList.add('bg-gray-200', 'text-gray-800');
+            } else {
+                el.temaBtn.innerHTML = '☀️';
+                el.temaBtn.classList.add('bg-gray-700', 'text-white');
+            }
+        }
+        
+        // --- UTILITY FUNCTIONS ---
+        const kToF = (k) => ((k - 273.15) * 9/5 + 32).toFixed(0); 
+        const mpsToMph = (mps) => (mps * 2.237).toFixed(1); 
+        function formatTime(timestamp) {
+            const date = new Date(timestamp * 1000);
+            return date.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', hour12: true });
+        }
+        function calculateDaylight(sunrise, sunset) {
+            if (!sunrise || !sunset) return "--";
+            const diff = sunset - sunrise; 
+            const hours = Math.floor(diff / (60 * 60));
+            const minutes = Math.floor((diff % (60 * 60)) / 60);
+            return `${hours}h ${minutes}m`;
+        }
+        function getClimaInfo(weatherCode, conditionDescription, isDaytime = true) {
+            let icone = '❓';
+            let condicao = conditionDescription; 
+            if (weatherCode >= 200 && weatherCode < 300) { icone = '⛈️'; 
+            } else if (weatherCode >= 300 && weatherCode < 500) { icone = '🌧️'; 
+            } else if (weatherCode >= 500 && weatherCode < 600) { icone = '☔'; 
+            } else if (weatherCode >= 600 && weatherCode < 700) { icone = '❄️'; 
+            } else if (weatherCode >= 700 && weatherCode < 800) { icone = '🌫️'; 
+            } else if (weatherCode === 800) { icone = isDaytime ? '☀️' : '🌕'; 
+            } else if (weatherCode === 801) { icone = isDaytime ? '🌤️' : '☁️'; 
+            } else if (weatherCode > 801 && weatherCode < 900) { icone = '☁️'; 
+            }
+            return { icone, condicao };
+        }
+        
+        // 🗺️ Leaflet Map Functions 
+        function initializeMap(initialLat, initialLon) {
+            if (mapInstance) {
+                mapInstance.remove(); 
+            }
+            mapInstance = L.map('mapa-interativo').setView([initialLat, initialLon], 10);
+
+            L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+                maxZoom: 19,
+                attribution: '© OpenStreetMap'
+            }).addTo(mapInstance);
+
+            currentMarker = L.marker([initialLat, initialLon]).addTo(mapInstance)
+                .bindPopup("Current Location").openPopup();
+
+            mapInstance.on('click', function(e) {
+                const newLat = e.latlng.lat;
+                const newLon = e.latlng.lng;
+                
+                if (currentMarker) {
+                    currentMarker.setLatLng([newLat, newLon]);
+                } else {
+                    currentMarker = L.marker([newLat, newLon]).addTo(mapInstance);
+                }
+                
+                mapInstance.setView([newLat, newLon], mapInstance.getZoom(), {animate: true});
+                buscarDadosPorCoordenadas(newLat, newLon, el.dataInput.value);
+            });
+        }
+        
+        async function getCityFromCoordinates(lat, lon) {
+            const url = `${REVERSE_GEOCODE_BASE}?lat=${lat}&lon=${lon}&limit=1&appid=${OPENWEATHER_API_KEY}`;
+            try {
+                const response = await fetch(url);
+                const data = await response.json();
+                
+                if (data && data.length > 0) {
+                    const name = data[0].name || data[0].state || "Unknown Location";
+                    return `${name}, ${data[0].country}`;
+                }
+                return `Lat: ${lat.toFixed(2)}, Lon: ${lon.toFixed(2)}`;
+            } catch (error) {
+                console.error("Error during reverse geocoding:", error);
+                return `Lat: ${lat.toFixed(2)}, Lon: ${lon.toFixed(2)}`;
+            }
+        }
+
+        function handleApiError(errorCode, errorMessage) {
+            isApiKeyInvalid = true;
+            console.error(`API Error ${errorCode}: ${errorMessage}`);
+            
+            const errorData = {
+                nome: `❌ API Error: ${errorCode}`, condicao: 'Data Unavailable', icone: '🚨', temperatura: '--', sensacao: '--', umidade: '--', vento: '--', chuva: '--',
+                hourlyPrevisao: [], previsaoDiaria: [], nascerSol: 'Error', porSol: 'Error', duracaoDia: 'Error'
+            };
+            
+            atualizarUI(errorData);
+
+            alert(`API ERROR: ${errorCode}\n\n${errorMessage}\n\nO painel foi zerado. Por favor, verifique a chave API e tente novamente.`);
+        }
+
+        // 🔎 Data Fetching Logic 
+        async function buscarDados(cidade, dataStr) {
+            cidadeAtual = cidade;
+            
+            const geocodeUrl = `https://api.openweathermap.org/geo/1.0/direct?q=${encodeURIComponent(cidade)}&limit=1&appid=${OPENWEATHER_API_KEY}`;
+            
+            try {
+                const geocodeResponse = await fetch(geocodeUrl);
+                
+                if (!geocodeResponse.ok) {
+                     handleApiError(geocodeResponse.status, "Erro de autorização! A chave API pode estar inválida ou inativa.");
+                     return;
+                }
+                
+                const geocodeData = await geocodeResponse.json();
+
+                if (!geocodeData || geocodeData.length === 0) {
+                    alert("City not found. Please try again or use the full name.");
+                    return;
+                }
+
+                const { lat, lon, name, country } = geocodeData[0];
+                const displayCity = `${name}, ${country}`;
+
+                latAtual = lat;
+                lonAtual = lon;
+                
+                if (mapInstance) {
+                    mapInstance.setView([lat, lon], 10);
+                    if (currentMarker) {
+                        currentMarker.setLatLng([lat, lon]).setPopupContent(displayCity).openPopup();
+                    }
+                }
+                
+                fetchAndProcessData(lat, lon, dataStr, displayCity);
+
+            } catch (error) {
+                console.error("API request error (city search):", error);
+                handleApiError("Connection Error", "Erro de conexão ao buscar a cidade. Verifique sua rede.");
+            }
+        }
+        
+        async function buscarDadosPorCoordenadas(lat, lon, dataStr) {
+            latAtual = lat;
+            lonAtual = lon;
+            
+            const displayCity = await getCityFromCoordinates(lat, lon);
+            cidadeAtual = displayCity;
+            el.cidadeInput.value = displayCity.split(',')[0].trim();
+            
+            fetchAndProcessData(lat, lon, dataStr, displayCity);
+        }
+        
+        async function fetchAndProcessData(lat, lon, dataStr, displayCity) {
+            const forecastUrl = `${API_URL_BASE}forecast?lat=${lat}&lon=${lon}&appid=${OPENWEATHER_API_KEY}&lang=en`;
+            const currentUrl = `${API_URL_BASE}weather?lat=${lat}&lon=${lon}&appid=${OPENWEATHER_API_KEY}&lang=en`;
+
+            try {
+                const forecastResponse = await fetch(forecastUrl);
+                const currentResponse = await fetch(currentUrl);
+                
+                if (!forecastResponse.ok || !currentResponse.ok) {
+                     const status = forecastResponse.status || currentResponse.status;
+                     handleApiError(status, "A chave API pode ser inválida, estar inativa ou o limite de chamadas foi atingido.");
+                     return;
+                }
+
+                const weatherData = await forecastResponse.json();
+                const currentData = await currentResponse.json();
+                
+                if (weatherData.cod !== "200") {
+                    handleApiError(weatherData.cod, `Erro interno da API. Código: ${weatherData.cod}.`);
+                    return;
+                }
+                
+                isApiKeyInvalid = false;
+                processarDados(weatherData, currentData, dataStr, displayCity);
+
+            } catch (error) {
+                console.error("API request error (fetch data):", error);
+                handleApiError("Connection Error", "Erro de conexão ao buscar dados climáticos. Verifique sua rede.");
+            }
+        }
+
+        // 🎯 Data Processing
+        function processarDados(weatherData, currentData, selectedDateStr, displayCity) {
+             const list = weatherData.list;
+             const selectedDate = new Date(selectedDateStr);
+             const selectedDayEntries = list.filter(item => item.dt_txt.startsWith(selectedDateStr));
+             const sunrise = currentData.sys.sunrise;
+             const sunset = currentData.sys.sunset;
+            
+             const nascerSol = formatTime(sunrise);
+             const porSol = formatTime(sunset);
+             const duracaoDia = calculateDaylight(sunrise, sunset);
+
+            if (selectedDayEntries.length === 0) {
+                 const firstDate = new Date(list[0].dt * 1000).toLocaleDateString('en-US');
+                 const lastDate = new Date(list[list.length - 1].dt * 1000).toLocaleDateString('en-US');
+                 alert(`The forecast for ${new Date(selectedDateStr).toLocaleDateString('en-US')} is not available. Forecast is available from ${firstDate} to ${lastDate}.`);
+                 return;
+            }
+            
+            const current = selectedDayEntries[0]; 
+            const description = current.weather[0].description.split(' ').map(w => w.charAt(0).toUpperCase() + w.slice(1)).join(' '); 
+            const { condicao, icone } = getClimaInfo(current.weather[0].id, description, true);
+            const tempF = parseFloat(kToF(current.main.temp));
+            const feelsLikeF = parseFloat(kToF(current.main.feels_like));
+            const windMph = mpsToMph(current.wind.speed);
+            
+            const hourlyPrevisao = selectedDayEntries.map(item => {
+                const date = new Date(item.dt * 1000);
+                const hour = date.getHours().toString().padStart(2, '0');
+                const itemDescription = item.weather[0].description.split(' ').map(w => w.charAt(0).toUpperCase() + w.slice(1)).join(' ');
+                return {
+                    hora: `${hour}:00`, 
+                    temp: `${kToF(item.main.temp)}°`, 
+                    icone: getClimaInfo(item.weather[0].id, itemDescription, hour >= 6 && hour <= 18).icone
+                };
+            });
+            const previsaoDiaria = mapDailyData(list);
+            window.dailyDataCache = previsaoDiaria; 
+
+            const data = {
+                // CORRIGIDO: Adiciona 'T12:00:00' para corrigir o bug de data com fuso horário
+                nome: `${displayCity} | ${new Date(selectedDateStr + 'T12:00:00').toLocaleDateString('en-US', { weekday: 'long', day: 'numeric', month: 'short' })}`,
+                condicao: condicao,
+                icone: icone,
+                temperatura: tempF, sensacao: feelsLikeF, umidade: current.main.humidity, vento: windMph, 
+                chuva: current.pop ? (current.pop * 100).toFixed(0) : 0, 
+                hourlyPrevisao: hourlyPrevisao, previsaoDiaria: previsaoDiaria,
+                nascerSol: nascerSol, porSol: porSol, duracaoDia: duracaoDia
+            };
+
+            atualizarUI(data);
+        }
+        
+        function mapDailyData(list) {
+             const days = {};
+             list.forEach(item => {
+                const date = new Date(item.dt * 1000);
+                const dayOfWeek = date.toLocaleDateString('en-US', { weekday: 'short' });
+                const dayKey = date.toISOString().split('T')[0];
+
+                if (!days[dayKey]) {
+                    days[dayKey] = { temps_max: [], temps_min: [], condicoes: [], descriptions: [], date: date, day: dayOfWeek };
+                }
+                days[dayKey].temps_max.push(parseFloat(kToF(item.main.temp_max)));
+                days[dayKey].temps_min.push(parseFloat(kToF(item.main.temp_min)));
+                days[dayKey].condicoes.push(item.weather[0].id);
+                days[dayKey].descriptions.push(item.weather[0].description);
+            });
+
+            return Object.values(days).slice(0, 7).map(dayData => {
+                const max = Math.max(...dayData.temps_max);
+                const min = Math.min(...dayData.temps_min);
+                const mainWeatherCode = dayData.condicoes[Math.floor(dayData.condicoes.length / 2)];
+                const mainDescription = dayData.descriptions[Math.floor(dayData.descriptions.length / 2)].split(' ').map(w => w.charAt(0).toUpperCase() + w.slice(1)).join(' ');
+                const { icone, condicao } = getClimaInfo(mainWeatherCode, mainDescription, true);
+
+                return {
+                    dia: dayData.day.replace('.', ''),
+                    temp_max: max, temp_min: min,
+                    temp_full: `${max}°/${min}°`, 
+                    icone: icone, condicao: condicao
+                };
+            });
+        }
+
+        // 🧩 UI Update 
+        function atualizarUI(data) {
+            el.localizacao.textContent = data.nome;
+            el.temperatura.textContent = `${data.temperatura}${data.temperatura !== '--' ? '°F' : ''}`;
+            el.condicao.textContent = data.condicao;
+            el.sensacao.textContent = `${data.sensacao}${data.sensacao !== '--' ? '°F' : ''}`;
+            el.vento.textContent = `${data.vento}${data.vento !== '--' ? ' mph' : ''}`; 
+            el.umidade.textContent = `${data.umidade}${data.umidade !== '--' ? '%' : ''}`;
+            el.chuva.textContent = `${data.chuva}${data.chuva !== '--' ? '%' : ''}`;
+            el.icone.innerHTML = data.icone;
+            
+            el.nascerSol.textContent = data.nascerSol;
+            el.porSol.textContent = data.porSol;
+            el.duracaoDia.textContent = data.duracaoDia;
+            
+            if (!isApiKeyInvalid) {
+                aplicarImpacto(data);
+                calcularClassificacao(data);
+                definirDesafio(data); 
+            } else {
+                 el.sugestaoVestuario.innerHTML = "API Error"; el.sugestaoFrizz.innerHTML = "API Error"; el.sugestaoSecagem.innerHTML = "API Error";
+                 el.classificacaoDia.innerHTML = "Error"; el.classificacaoJustificativa.textContent = "Error";
+                 el.desafioTitulo.innerHTML = "Error"; el.desafioDescricao.textContent = "Error";
+            }
+
+            atualizarHoras(data.hourlyPrevisao);
+            atualizarDiario(data.previsaoDiaria); 
+
+            if (data.previsaoDiaria.length > 0) {
+                 atualizarGrafico(data.previsaoDiaria);
+            } else {
+                 if (chartInstance) chartInstance.destroy();
+                 const ctx = document.getElementById("graficoTemperatura").getContext("2d");
+                 ctx.clearRect(0, 0, ctx.canvas.width, ctx.canvas.height);
+            }
+        }
+        
+        // 📉 Chart Update 
+        function atualizarGrafico(lista) {
+            const ctx = document.getElementById("graficoTemperatura").getContext("2d");
+            if (chartInstance) chartInstance.destroy();
+
+            const isDarkMode = !document.body.classList.contains('light');
+            Chart.defaults.color = isDarkMode ? '#e5e7eb' : '#1f2937'; 
+            Chart.defaults.borderColor = isDarkMode ? 'rgba(255, 255, 255, 0.1)' : 'rgba(0, 0, 0, 0.1)'; 
+
+            chartInstance = new Chart(ctx, {
+                type: "line",
+                data: {
+                    labels: lista.map(d => d.dia),
+                    datasets: [
+                        { label: "Max (°F)", data: lista.map(d => d.temp_max), borderColor: "#f87171", backgroundColor: isDarkMode ? "rgba(248, 113, 113, 0.2)" : "rgba(248, 113, 113, 0.4)", fill: true, tension: 0.3 }, 
+                        { label: "Min (°F)", data: lista.map(d => d.temp_min), borderColor: "#6366f1", backgroundColor: isDarkMode ? "rgba(99, 102, 241, 0.2)" : "rgba(99, 102, 241, 0.4)", fill: true, tension: 0.3 }
+                    ]
+                },
+                options: { responsive: true, maintainAspectRatio: false, scales: { y: { beginAtZero: false, } } }
+            });
+        }
+        
+        // 👗 Contextual Forecasts
+        function aplicarImpacto(data) {
+            const T = data.temperatura; const U = data.umidade; const V = parseFloat(data.vento); const C = data.chuva; 
+            if (T === '--') { el.sugestaoVestuario.innerHTML = "Awaiting data..."; el.sugestaoFrizz.innerHTML = "Awaiting data..."; el.sugestaoSecagem.innerHTML = "Awaiting data..."; return; }
+            let vestuario; if (C >= 50) { vestuario = `Prepare the **umbrella** and choose closed shoes. ☔ High rain expected.`; } else if (T >= 86) { vestuario = `Day of **intense heat**! Light, bright clothes and constant hydration. 😎`; } else if (T >= 72) { vestuario = `Light and comfortable clothes are ideal. Take a **thin jacket** if the night is cold. 🌤️`; } else if (T >= 59) { vestuario = `Wear a **blazer or light jacket**. The weather is mild and pleasant. 🧥`; } else { vestuario = `**Cold day**. Use layers, scarf, and coat. Keep extremities warm. 🧣`; }
+            let frizz; if (U >= 80) { frizz = `**Very high humidity!** Hair prone to frizz. Drink water and use protective creams. 💧`; } else if (U >= 60) { frizz = `Good humidity, but may cause swelling. **Normal routine**, but avoid air-drying hair. ✨`; } else if (U >= 30) { frizz = `Ideal humidity level. **Perfect for skin and hair!** 😇`; } else { frizz = `**Critical humidity and dry air!** Use lip moisturizer and avoid air-conditioned environments. 🌵`; }
+            let secagem; if (C >= 40 || U >= 85) { secagem = `High risk of rain and humidity. **Use the dryer** or postpone washing. 👎`; } else if (T >= 77 && V >= 6.2 && C < 10) { secagem = `**Excellent day!** Quick drying in less than 3 hours due to sun and wind. ☀️`; } else if (T >= 64 && C < 20) { secagem = `Acceptable. Moderate drying (about 5h). Hang in a well-ventilated place. 🧺`; } else { secagem = `Slow drying. If washing, check the hourly forecast.`; }
+            el.sugestaoVestuario.innerHTML = vestuario; el.sugestaoFrizz.innerHTML = frizz; el.sugestaoSecagem.innerHTML = secagem;
+        }
+
+        // 🎨 Function to Calculate Discomfort and Classification
+        function calcularClassificacao(data) {
+            const T = data.temperatura; const U = data.umidade; const V = parseFloat(data.vento); 
+            if (T === '--' || U === '--') { el.classificacaoDia.innerHTML = "Awaiting data..."; el.classificacaoJustificativa.textContent = "Could not calculate classification."; el.classificacaoDia.className = `text-xl font-extrabold mt-1 text-gray-400`; return; }
+            let classificacao = "Comfortable"; let justificativa = "The weather is pleasant and balanced for most activities."; let cor = "text-green-500"; 
+            if (T >= 90 && U >= 65) { classificacao = "🔥 Very Hot and Uncomfortable"; justificativa = `High temperature (${T}°F) and high humidity cause **great discomfort**. Avoid the sun.`; cor = "text-red-500";
+            } else if (T <= 50) { classificacao = "🥶 Very Cold"; justificativa = `Low temperatures require heavy coats. Risk of cold stress.`; cor = "text-blue-500";
+            } else if (U >= 80 && T < 90) { classificacao = "💧 Very Humid/Muggy"; justificativa = `High humidity (${U}%) makes perspiration difficult and causes a stuffy feeling, even with moderate temperatures.`; cor = "text-blue-400";
+            } else if (V >= 18.6) { classificacao = "🌬️ Very Windy"; justificativa = `Strong winds (${V} mph) can be inconvenient and increase the "wind chill factor".`; cor = "text-teal-400";
+            } else if (T >= 80) { classificacao = "🥵 Uncomfortable"; justificativa = `The heat suggests most people will feel some discomfort.`; cor = "text-orange-400"; }
+            el.classificacaoDia.innerHTML = classificacao; el.classificacaoJustificativa.textContent = justificativa;
+            el.classificacaoDia.className = `text-xl font-extrabold mt-1 ${cor}`;
+        }
+
+        // 🎯 Function to Define Daily Challenge
+        function definirDesafio(data) {
+            const T = data.temperatura; const U = data.umidade; const C = data.chuva; const V = parseFloat(data.vento);
+            if (T === '--') { el.desafioTitulo.textContent = "Awaiting Weather Data..."; el.desafioDescricao.textContent = "Search for a city to unlock your daily mission!"; return; }
+            let titulo, descricao;
+            if (T >= 86 && U >= 70) { titulo = "🔥 Max Hydration Day!"; descricao = `It's seriously hot (${T}°F) and humid. **Challenge:** Drink 2 liters of water by 4 PM. Stay in the shade!`;
+            } else if (T <= 50) { titulo = "🥶 Energy Saving Quest"; descricao = `It's cold (${T}°F). **Challenge:** Wear an extra layer and try to keep your thermostat 2 degrees lower than usual.`;
+            } else if (C >= 50) { titulo = "☔ Indoor Productivity Boost"; descricao = `Rainy day (chance of ${C}%). **Challenge:** Take a break from screens and read a book or listen to a podcast for 30 minutes.`;
+            } else if (U <= 30) { titulo = "🌵 Plant Care Mission"; descricao = `The air is dry. **Challenge:** Spritz your indoor plants with water or take a deep breathing exercise to protect your lungs.`;
+            } else if (V >= 18.6) { titulo = "🌬️ Quick Trip Goal"; descricao = `It's windy (${V} mph). **Challenge:** If you need to go out, complete your errands in less than one hour to avoid the wind chill.`;
+            } else { titulo = "☀️ Perfect Day Explorer"; descricao = `The weather is balanced. **Challenge:** Step outside and take a 15-minute walk. Enjoy the great climate!`; }
+            el.desafioTitulo.textContent = titulo; el.desafioDescricao.textContent = descricao;
+        }
+
+        // Hourly Cards
+        function atualizarHoras(lista) {
+            el.hourly.innerHTML = "";
+            lista.forEach(h => { el.hourly.innerHTML += `<div class="w-24 p-3 rounded-lg bg-gray-800 text-center flex-shrink-0"><p class="text-sm font-semibold text-indigo-400">${h.hora}</p><div class="my-2 text-xl icon-fix">${h.icone}</div><p class="text-lg font-bold">${h.temp}</p></div>`; });
+            if (lista.length === 0) { el.hourly.innerHTML = `<p class="p-2 text-center text-gray-400 w-full">Hourly forecast for the selected day not available.</p>`; }
+        }
+        
+        // Daily Cards
+        function atualizarDiario(lista) {
+            el.daily.innerHTML = "";
+            if (lista.length === 0) { el.daily.innerHTML = `<p class="p-2 text-center text-gray-400 w-full">Daily forecast not available.</p>`; return; }
+            lista.slice(0, 7).forEach(d => {
+                el.daily.innerHTML += `<div class="w-32 p-4 rounded-lg bg-gray-800 text-center flex-shrink-0 border-b-2 border-indigo-500"><p class="text-sm font-semibold text-gray-300">${d.dia}</p><div class="my-2 text-2xl icon-fix">${d.icone}</div><p class="text-sm text-gray-400">${d.condicao}</p><p class="text-lg font-bold mt-1">${d.temp_full}</p></div>`;
+            });
+        }
+
+        // Events
+        document.getElementById("pesquisar-btn").addEventListener("click", ()=> {
+            const searchCity = el.cidadeInput.value.trim() || cidadeAtual;
+            buscarDados(searchCity, el.dataInput.value); 
+        });
+        el.cidadeInput.addEventListener("keyup", (e) => {
+             if (e.key === "Enter") {
+                const searchCity = el.cidadeInput.value.trim() || cidadeAtual;
+                buscarDados(searchCity, el.dataInput.value); 
+             }
+        });
+        el.temaBtn.addEventListener('click', toggleTheme);
+        el.dataInput.addEventListener("change", e=>buscarDados(cidadeAtual, e.target.value));
+
+        // Boot (Initialization)
+        window.onload = () => {
+            initializeTheme();
+            const today = new Date().toISOString().split("T")[0];
+            el.dataInput.value = today;
+            
+            initializeMap(latAtual, lonAtual);
+            buscarDados(cidadeAtual, today); 
+        };
+    </script>
+</body>
+</html>
